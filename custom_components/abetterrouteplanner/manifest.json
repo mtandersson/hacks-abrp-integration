@@ -1,0 +1,11 @@
+{
+  "domain": "abetterrouteplanner",
+  "name": "A Better Routeplanner",
+  "codeowners": ["@mtandersson"],
+  "config_flow": true,
+  "documentation": "https://github.com/mtandersson/hacks-abrp-integration",
+  "issue_tracker": "https://github.com/mtandersson/hacks-abrp-integration/issues",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "version": "0.1.0"
+}

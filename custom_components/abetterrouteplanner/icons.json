@@ -1,0 +1,26 @@
+{
+  "entity": {
+    "device_tracker": {
+      "location": {
+        "default": "mdi:crosshairs-gps"
+      }
+    },
+    "sensor": {
+      "battery_capacity": {
+        "default": "mdi:battery"
+      },
+      "calibrated_ref_cons": {
+        "default": "mdi:car-electric"
+      },
+      "odometer": {
+        "default": "mdi:counter"
+      },
+      "soe": {
+        "default": "mdi:battery-charging-50"
+      },
+      "soh": {
+        "default": "mdi:battery-heart-variant"
+      }
+    }
+  }
+}
