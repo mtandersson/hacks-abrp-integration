@@ -20,10 +20,8 @@ ABRP_V2_TLM_ENDPOINT = "tlm"
 HEADER_API_KEY = "X-API-KEY"
 HEADER_ABRP_SESSION = "X-ABRP-SESSION"
 
-# Public partner key used by the ABRP web app at https://app.iternio.com.
-# Provenance: extracted from a live browser session on 2026-05-22. If ABRP
-# rotates this value, re-capture from devtools and bump this constant.
-ABRP_APP_KEY = "f4128c06-5e39-4852-95f9-3286712a9f3a"
+# Partner API key issued by ABRP (Iternio) for the Home Assistant integration.
+ABRP_APP_KEY = "97b4bb90-b8f5-413b-9f28-09789a3777ed"
 
 ENDPOINT_GET_TLM = "session/get_tlm"
 
