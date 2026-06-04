@@ -215,7 +215,7 @@ def _extract_lat_long(frame: Mapping[str, Any]) -> tuple[float, float] | None:
     # Coerce both axes to ``float`` at the live-wire boundary so an int-typed
     # wire value (``"lat": 51``) doesn't leak through to the tracker's
     # ``extra_state_attributes`` as ``int`` and contradict the function's
-    # ``tuple[float, float]`` signature. Mirrors the N76-3 fix at the restore
+    # ``tuple[float, float]`` signature. Mirrors the coercion at the restore
     # boundary, keeping the two surfaces type-symmetric.
     return float(lat), float(lng)
 

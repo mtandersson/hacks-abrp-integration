@@ -11,7 +11,7 @@ OAUTH2_CLIENT_ID = "ha-abrp-integration"
 OAUTH2_SCOPES: list[str] = ["oidc", "profile", "email", "offline_access"]
 
 ABRP_API_BASE = "https://api.iternio.com/1"
-# Phase-2 SSE telemetry. Probe-confirmed base is ``/2`` (not ``/v2``); the
+# SSE telemetry. Probe-confirmed base is ``/2`` (not ``/v2``); the
 # swagger ``servers.url`` agrees.
 ABRP_API_V2_BASE = "https://api.iternio.com/2"
 ABRP_V2_TLM_ENDPOINT = "tlm"
@@ -31,21 +31,21 @@ ENDPOINT_GET_TLM = "session/get_tlm"
 #
 # Wire and dataclass use ``int`` (the API returns int64 ``vehicle_id``), but
 # this value is stored as ``list[str]`` because HA's ``SelectSelector`` only
-# accepts string option values. Callers reading ``entry.data[CONF_CAR_IDS]``
+# accepts string option values. Callers reading ``entry.data[CONF_VEHICLE_IDS]``
 # must therefore round-trip through ``int(...)`` before comparing against
 # ``AbrpVehicle.vehicle_id``. The conversion lives at the picker/coordinator
 # boundary, not in the dataclass.
-CONF_CAR_IDS = "car_ids"
+CONF_VEHICLE_IDS = "vehicle_ids"
 
 # Config entry key recording every vehicle the user has had the opportunity
 # to decline. Updated by the config flow (initial-add + reconfigure submits)
 # to the full garage at submit time, and by the auto-add listener whenever a
-# brand-new vehicle is onboarded. Format mirrors ``CONF_CAR_IDS``
+# brand-new vehicle is onboarded. Format mirrors ``CONF_VEHICLE_IDS``
 # (``list[str]``) so both round-trip through ``SelectSelector`` symmetrically.
 # Auto-add fires only for vehicles NOT in this set: a vehicle that's "known
-# but not selected" is the spouse-car / rental-car escape hatch and stays
+# but not selected" is the spouse-vehicle / rental-vehicle escape hatch and stays
 # permanently declined until the user re-runs reconfigure.
-CONF_KNOWN_CAR_IDS = "known_car_ids"
+CONF_KNOWN_VEHICLE_IDS = "known_vehicle_ids"
 
 # Marker stored in ``entry.data`` once the UX-B → UX-C entity_registry
 # migration has run for this entry. UX-B hid absent-metric sensors via a

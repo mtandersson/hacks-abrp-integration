@@ -1,7 +1,6 @@
 """Async client for the A Better Routeplanner v1 API.
 
-Wire surface used by phase 1.5 (vehicle enumeration only — telemetry is
-phase 2):
+Wire surface for vehicle enumeration (telemetry uses the v2 SSE stream):
 
 * ``POST https://api.iternio.com/1/session/get_tlm``
 * Header ``Authorization: APIKEY <ABRP_APP_KEY>``
@@ -58,7 +57,7 @@ _ONE_SHOT_TIMEOUT_SECONDS = 30
 
 # Heuristic match against the v1 envelope ``error`` text. The keywords are
 # word-bounded to avoid matching unrelated business errors that happen to
-# contain a substring (e.g. "invalid car_model" matches a bare "invalid").
+# contain a substring (e.g. "invalid vehicle_model" matches a bare "invalid").
 # Compound forms like ``session_id`` / ``auth_required`` are their own
 # alternatives because the ``_`` is a regex word character and would block
 # the shorter ``\bsession\b`` / ``\bauth\b`` boundary match.
@@ -84,7 +83,7 @@ class AbrpApiError(Exception):
 class AbrpVehicle:
     """One vehicle: v1 garage enumeration enriched with v2 catalog lookup.
 
-    Identity fields (``vehicle_id``, ``name``, ``car_model``, ``paint``) come
+    Identity fields (``vehicle_id``, ``name``, ``vehicle_model``, ``paint``) come
     from ``POST /1/session/get_tlm``. The ``device_model`` and
     ``device_manufacturer`` fields are derived at coordinator-refresh time
     from a single longest-colon-token-prefix match against the v2 catalog
@@ -94,7 +93,7 @@ class AbrpVehicle:
     make (e.g. ``"Tesla"`` / ``"Rivian"``); on catalog miss it stays
     ``None`` and the device card's Manufacturer slot falls back to the
     integration name at the sensor layer. ``device_model`` likewise stays
-    ``None`` on miss and the Model slot falls back to the raw ``car_model``
+    ``None`` on miss and the Model slot falls back to the raw ``vehicle_model``
     typecode.
 
     ``name`` stays nullable defensively (some live-API records have no
@@ -103,7 +102,7 @@ class AbrpVehicle:
 
     vehicle_id: int
     name: str | None
-    car_model: str
+    vehicle_model: str
     paint: str | None
     device_model: str | None = None
     device_manufacturer: str | None = None
@@ -206,7 +205,7 @@ class AbrpClient:
         """Fetch the v2 vehicle catalog from ``GET /2/vehicle/_list``.
 
         Returns a dict keyed by typecode for O(1) lookup. The catalog is
-        ~850 KB (~1100 entries per probe Q1, no pagination per Q8) and stable
+        ~850 KB (~1100 entries, no pagination) and stable
         enough that fetching once per coordinator lifetime is appropriate;
         reload of the config entry is the only refresh path. Mid-session
         catalog updates on ABRP's side do not materialise new sensors until
@@ -466,7 +465,7 @@ def _parse_vehicle(record: dict[str, Any]) -> AbrpVehicle:
         return AbrpVehicle(
             vehicle_id=int(record["vehicle_id"]),
             name=str(name) if name is not None else None,
-            car_model=str(record["car_model"]),
+            vehicle_model=str(record["car_model"]),
             paint=record.get("paint"),
         )
     except (KeyError, TypeError, ValueError) as err:
@@ -627,7 +626,7 @@ def _enrich_with_catalog(
     Catalog hit: produce a new :class:`AbrpVehicle` carrying the v1 identity
     fields plus the composed ``device_model`` and the catalog
     ``device_manufacturer``. Catalog miss: both stay ``None`` and the device
-    card falls back to the raw ``car_model`` typecode (Model) and the
+    card falls back to the raw ``vehicle_model`` typecode (Model) and the
     integration name (Manufacturer) at the sensor layer.
 
     No typecode-string parsing fallback. Skip-on-miss beats best-effort
@@ -635,13 +634,13 @@ def _enrich_with_catalog(
     ``unknown``, and renders better once ABRP catalogs the vehicle on the
     next coordinator reload.
     """
-    best = _match_catalog_entry(raw.car_model, catalog)
+    best = _match_catalog_entry(raw.vehicle_model, catalog)
     if best is None:
         return raw
     return AbrpVehicle(
         vehicle_id=raw.vehicle_id,
         name=raw.name,
-        car_model=raw.car_model,
+        vehicle_model=raw.vehicle_model,
         paint=raw.paint,
         device_model=_compose_device_model(best),
         device_manufacturer=best.manufacturer,

@@ -12,7 +12,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator
 
 from . import AbetterrouteplannerConfigEntry
-from .const import CONF_CAR_IDS, CONF_KNOWN_CAR_IDS
+from .const import CONF_KNOWN_VEHICLE_IDS, CONF_VEHICLE_IDS
 
 # ``async_redact_data`` recurses into nested dicts and lists; any matching key
 # at any depth is redacted. ``token`` blanks the whole OAuth subtree (access /
@@ -129,12 +129,12 @@ async def async_get_config_entry_diagnostics(
     id_token = token.get("id_token")
     claims = _decode_id_token_claims(id_token) if id_token else None
 
-    # ``CONF_CAR_IDS`` is set on every entry by the config-flow picker, so
-    # direct access is correct. ``CONF_KNOWN_CAR_IDS`` is an additive
+    # ``CONF_VEHICLE_IDS`` is set on every entry by the config-flow picker, so
+    # direct access is correct. ``CONF_KNOWN_VEHICLE_IDS`` is an additive
     # field; pre-upgrade entries may still lack it until the listener's
     # deferred seed runs, so the diagnostics call site stays defensive.
-    selected = set(entry.data[CONF_CAR_IDS])
-    known = set(entry.data.get(CONF_KNOWN_CAR_IDS, []))
+    selected = set(entry.data[CONF_VEHICLE_IDS])
+    known = set(entry.data.get(CONF_KNOWN_VEHICLE_IDS, []))
 
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
@@ -162,9 +162,9 @@ async def async_get_config_entry_diagnostics(
             "title_includes_display_name": "(" in (entry.title or ""),
             "version": entry.version,
             "source": entry.source,
-            "selected_car_ids": sorted(selected),
-            "known_car_ids": sorted(known),
-            "declined_car_ids": sorted(known - selected),
+            "selected_vehicle_ids": sorted(selected),
+            "known_vehicle_ids": sorted(known),
+            "declined_vehicle_ids": sorted(known - selected),
             "data": async_redact_data(entry.data, TO_REDACT),
         },
         "token_metadata": {
@@ -198,7 +198,7 @@ async def async_get_config_entry_diagnostics(
         # payload can carry GPS coordinates (``location.lat``/``long``),
         # odometer (``odometer.m``), speed (``speed.kph``), heading,
         # elevation, and other future PII-bearing metrics. Diagnostics-
-        # in-public-issues must not leak the user's exact car location.
+        # in-public-issues must not leak the user's exact vehicle location.
         # Field names alone answer the "is X working for this vehicle?"
         # triage question without spilling values.
         "telemetry_field_names": {

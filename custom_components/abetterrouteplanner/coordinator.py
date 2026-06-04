@@ -47,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(minutes=10)
 
-# Reconnect backoff for the phase-2 SSE consumer. Resets to the first delay
+# Reconnect backoff for the SSE consumer. Resets to the first delay
 # after at least one frame is received from a connection attempt.
 _SSE_BACKOFF_SECONDS: tuple[int, ...] = (5, 10, 30, 60)
 
@@ -150,9 +150,9 @@ class AbrpVehiclesCoordinator(TimestampDataUpdateCoordinator[list[AbrpVehicle]])
                 # Non-fatal: catalog endpoint may rate-limit independently of
                 # the v1 garage endpoint. Degrade to an empty catalog so every
                 # typecode misses and ``DeviceInfo.model`` falls back to the
-                # raw ``car_model`` typecode on the device card. v1 garage
-                # data is unaffected so the Type Code sensor and SSE
-                # telemetry path keep working. Retry happens on the next
+                # raw ``vehicle_model`` typecode on the device card. v1 garage
+                # data is unaffected so the SSE telemetry path keeps
+                # working. Retry happens on the next
                 # config-entry reload, not on the next coordinator poll
                 # (cache is now ``{}``, not ``None``).
                 #
@@ -223,8 +223,8 @@ class AbrpTelemetryCoordinator(
 
     Holds the current per-vehicle telemetry snapshot keyed by ``vehicleId``.
     Updates flow in from the SSE consumer task via :meth:`apply_frame`,
-    which performs a partial-update merge (wire frames are deltas — see
-    architect plan phase-2). ``update_interval`` is ``None`` because the
+    which performs a partial-update merge (wire frames are deltas).
+    ``update_interval`` is ``None`` because the
     push model means HA never polls this coordinator.
     """
 

@@ -27,10 +27,10 @@
     "step": {
       "pick_vehicles": {
         "data": {
-          "car_ids": "Vehicles to track"
+          "vehicle_ids": "Vehicles to track"
         },
         "data_description": {
-          "car_ids": "Each selected vehicle is added as a device in Home Assistant. Unselect vehicles you don't want to track here."
+          "vehicle_ids": "Each selected vehicle is added as a device in Home Assistant. Unselect vehicles you don't want to track here."
         },
         "description": "Choose which of your A Better Routeplanner vehicles you'd like to manage in Home Assistant.",
         "title": "Pick vehicles"

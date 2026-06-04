@@ -28,7 +28,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import AbetterrouteplannerConfigEntry
 from ._sensor_value_fns import LOCATION_KEY, _extract_lat_long, _is_clean_provider_str
 from .api import AbrpVehicle
-from .const import CONF_CAR_IDS, DOMAIN, signal_new_metric
+from .const import CONF_VEHICLE_IDS, DOMAIN, signal_new_metric
 from .coordinator import AbrpTelemetryCoordinator
 
 PARALLEL_UPDATES = 0
@@ -43,7 +43,7 @@ async def async_setup_entry(
     runtime = entry.runtime_data
     garage_coordinator = runtime.garage_coordinator
     telemetry_coordinator = runtime.telemetry_coordinator
-    selected_ids = {int(car_id) for car_id in entry.data[CONF_CAR_IDS]}
+    selected_ids = {int(vehicle_id) for vehicle_id in entry.data[CONF_VEHICLE_IDS]}
 
     entity_registry = er.async_get(hass)
     added: set[int] = set()
