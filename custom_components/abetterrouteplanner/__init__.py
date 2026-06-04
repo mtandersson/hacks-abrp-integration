@@ -18,7 +18,12 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_CAR_IDS, CONF_KNOWN_CAR_IDS, DOMAIN, PREWARM_WINDOW_SECONDS
+from .const import (
+    CONF_KNOWN_VEHICLE_IDS,
+    CONF_VEHICLE_IDS,
+    DOMAIN,
+    PREWARM_WINDOW_SECONDS,
+)
 from .coordinator import (
     AbrpTelemetryCoordinator,
     AbrpVehiclesCoordinator,
@@ -102,21 +107,21 @@ def _make_auto_add_listener(
         Two paths terminate in a single ``async_schedule_reload``:
 
         1. **Genuinely new** — vehicles present in the live garage but not yet
-           in ``CONF_KNOWN_CAR_IDS`` are added atomically to both
-           ``CONF_CAR_IDS`` (selection) and ``CONF_KNOWN_CAR_IDS`` (decision
+           in ``CONF_KNOWN_VEHICLE_IDS`` are added atomically to both
+           ``CONF_VEHICLE_IDS`` (selection) and ``CONF_KNOWN_VEHICLE_IDS`` (decision
            history), then the entry is reloaded so the sensor platform
            re-runs against the expanded ID list and the SSE consumer restarts
            with the new stream URL.
         2. **Re-appearance recovery** — a selected vehicle whose device row
            is missing from the registry (the stale-devices threshold-miss
            cleanup removed it while ABRP was flaky, then it reappeared)
-           triggers a reload without touching ``CONF_CAR_IDS``; setup
+           triggers a reload without touching ``CONF_VEHICLE_IDS``; setup
            re-registers the device.
 
         Users who don't want a particular garage member deselect it via
-        reconfigure; the vehicle then stays in ``CONF_KNOWN_CAR_IDS`` but
-        NOT in ``CONF_CAR_IDS`` and this listener leaves it alone forever
-        — preserving the spouse-car / rental-car escape hatch.
+        reconfigure; the vehicle then stays in ``CONF_KNOWN_VEHICLE_IDS`` but
+        NOT in ``CONF_VEHICLE_IDS`` and this listener leaves it alone forever
+        — preserving the spouse-vehicle / rental-vehicle escape hatch.
 
         NOT called eagerly at setup time. The first fire is on the next
         coordinator refresh, which avoids a setup-time reload loop and lets
@@ -124,11 +129,11 @@ def _make_auto_add_listener(
 
         Performs the deferred-migration seed when setup observed an empty
         first refresh: on the first non-empty poll, populate
-        ``CONF_KNOWN_CAR_IDS`` from the live garage and return. Seeding
+        ``CONF_KNOWN_VEHICLE_IDS`` from the live garage and return. Seeding
         immediately on empty would have written ``KNOWN=[]`` and re-onboarded
         every pre-upgrade-deselected vehicle once the garage repopulated.
         """
-        if CONF_KNOWN_CAR_IDS not in entry.data:
+        if CONF_KNOWN_VEHICLE_IDS not in entry.data:
             if not garage_coordinator.data:
                 return
             # Freeze-at-first-observation: a vehicle added to ABRP between
@@ -141,15 +146,15 @@ def _make_auto_add_listener(
                 entry,
                 data={
                     **entry.data,
-                    CONF_KNOWN_CAR_IDS: sorted(
+                    CONF_KNOWN_VEHICLE_IDS: sorted(
                         str(vehicle.vehicle_id) for vehicle in garage_coordinator.data
                     ),
                 },
             )
             return
 
-        known = {int(v) for v in entry.data[CONF_KNOWN_CAR_IDS]}
-        selected = {int(v) for v in entry.data[CONF_CAR_IDS]}
+        known = {int(v) for v in entry.data[CONF_KNOWN_VEHICLE_IDS]}
+        selected = {int(v) for v in entry.data[CONF_VEHICLE_IDS]}
         present = {vehicle.vehicle_id for vehicle in garage_coordinator.data}
 
         new_vehicles = present - known
@@ -177,8 +182,10 @@ def _make_auto_add_listener(
                 entry,
                 data={
                     **entry.data,
-                    CONF_CAR_IDS: sorted(str(v) for v in selected | new_vehicles),
-                    CONF_KNOWN_CAR_IDS: sorted(str(v) for v in known | new_vehicles),
+                    CONF_VEHICLE_IDS: sorted(str(v) for v in selected | new_vehicles),
+                    CONF_KNOWN_VEHICLE_IDS: sorted(
+                        str(v) for v in known | new_vehicles
+                    ),
                 },
             )
 
@@ -274,7 +281,7 @@ async def async_setup_entry(
     garage_coordinator = AbrpVehiclesCoordinator(hass, entry, session)
     await garage_coordinator.async_config_entry_first_refresh()
 
-    if CONF_KNOWN_CAR_IDS not in entry.data and garage_coordinator.data:
+    if CONF_KNOWN_VEHICLE_IDS not in entry.data and garage_coordinator.data:
         # Additive field with a live-seeded default — deliberately no VERSION
         # bump and no ``async_migrate_entry``. Seed from the garage AFTER the
         # first refresh so pre-existing entries treat every currently-visible
@@ -292,7 +299,7 @@ async def async_setup_entry(
             entry,
             data={
                 **entry.data,
-                CONF_KNOWN_CAR_IDS: sorted(
+                CONF_KNOWN_VEHICLE_IDS: sorted(
                     str(vehicle.vehicle_id) for vehicle in garage_coordinator.data
                 ),
             },
@@ -307,7 +314,7 @@ async def async_setup_entry(
     # entities so the device fields match what an entity-driven registration
     # would have produced.
     device_registry = dr.async_get(hass)
-    selected_ids = {int(car_id) for car_id in entry.data[CONF_CAR_IDS]}
+    selected_ids = {int(vehicle_id) for vehicle_id in entry.data[CONF_VEHICLE_IDS]}
     for vehicle in garage_coordinator.data:
         if vehicle.vehicle_id not in selected_ids:
             continue
@@ -316,8 +323,8 @@ async def async_setup_entry(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, scope)},
             manufacturer=vehicle.device_manufacturer or "A Better Routeplanner",
-            model=vehicle.device_model or vehicle.car_model,
-            name=vehicle.name or vehicle.car_model,
+            model=vehicle.device_model or vehicle.vehicle_model,
+            name=vehicle.name or vehicle.vehicle_model,
             configuration_url=(
                 f"https://abetterrouteplanner.com/?vehicle_id={vehicle.vehicle_id}"
             ),
@@ -329,7 +336,7 @@ async def async_setup_entry(
 
         Fires on every successful garage refresh. The same expression as
         ``DeviceInfo.name`` in :mod:`.sensor` (``vehicle.name`` with a
-        ``car_model`` fallback) is recomputed each call so the registry
+        ``vehicle_model`` fallback) is recomputed each call so the registry
         entry stays in lockstep with what the initial registration would
         have produced. ``name_by_user`` wins — once the user has overridden
         the device name in HA, ABRP renames are silently skipped.
@@ -342,7 +349,7 @@ async def async_setup_entry(
                 continue
             if device.name_by_user is not None:
                 continue
-            new_name = vehicle.name or vehicle.car_model
+            new_name = vehicle.name or vehicle.vehicle_model
             if device.name == new_name:
                 continue
             device_registry.async_update_device(device.id, name=new_name)
@@ -362,7 +369,7 @@ async def async_setup_entry(
     def _remove_stale_devices() -> None:
         """Reconcile the device registry against ``selected ∩ present``.
 
-        User-deselected vehicles (no longer in ``entry.data[CONF_CAR_IDS]``)
+        User-deselected vehicles (no longer in ``entry.data[CONF_VEHICLE_IDS]``)
         are removed immediately — user intent is unambiguous. Vehicles
         absent from the garage poll but still selected are removed only
         after ``_ABSENCE_THRESHOLD`` consecutive misses, so a single
@@ -370,7 +377,7 @@ async def async_setup_entry(
         counter resets whenever the vehicle reappears.
         """
         device_registry = dr.async_get(hass)
-        expected = {int(car_id) for car_id in entry.data[CONF_CAR_IDS]}
+        expected = {int(vehicle_id) for vehicle_id in entry.data[CONF_VEHICLE_IDS]}
         present = {vehicle.vehicle_id for vehicle in garage_coordinator.data}
         authoritative = expected & present
         for device in dr.async_entries_for_config_entry(
@@ -415,16 +422,18 @@ async def async_setup_entry(
     # task is owned by the config entry — HA cancels it on unload. Filter
     # the selection against the live garage so we only stream for vehicles
     # the API actually knows about; the v2 endpoint rejects unknown IDs,
-    # and an entry with no live selections (e.g. user removed every car
+    # and an entry with no live selections (e.g. user removed every vehicle
     # in ABRP) should idle until the next garage refresh re-discovers them.
     present_ids = {vehicle.vehicle_id for vehicle in garage_coordinator.data}
     vehicle_ids = [
-        int(car_id) for car_id in entry.data[CONF_CAR_IDS] if int(car_id) in present_ids
+        int(vehicle_id)
+        for vehicle_id in entry.data[CONF_VEHICLE_IDS]
+        if int(vehicle_id) in present_ids
     ]
     # Seed the telemetry coordinator BEFORE spawning the SSE consumer so the
     # cached JSON snapshot is the baseline the stream merges into; then give
     # the consumer a brief pre-warm window before forwarding to the sensor
-    # platform. The JSON snapshot can lag the live stream (e.g. a car is
+    # platform. The JSON snapshot can lag the live stream (e.g. a vehicle is
     # charging right now → ``power`` is non-null on SSE but null in the
     # cached JSON), so the window lets in-flight frames merge into
     # ``coordinator.data`` before the platform inspects it to decide which

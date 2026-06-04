@@ -23,7 +23,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .api import AbrpApiError, AbrpAuthError, AbrpClient, AbrpVehicle
-from .const import ABRP_APP_KEY, CONF_CAR_IDS, CONF_KNOWN_CAR_IDS, DOMAIN
+from .const import ABRP_APP_KEY, CONF_KNOWN_VEHICLE_IDS, CONF_VEHICLE_IDS, DOMAIN
 from .oauth import AbetterrouteplannerOAuth2Implementation
 
 
@@ -116,7 +116,7 @@ class AbetterrouteplannerFlowHandler(
 
         On the reauth path: no picker; the existing selection is sticky and
         we just refresh the stored token. ``data_updates=data`` is used so
-        the existing ``car_ids`` are preserved across the reauth.
+        the existing ``vehicle_ids`` are preserved across the reauth.
 
         On the reconfigure path: re-fetch the garage with the fresh token and
         hand off to ``async_step_pick_vehicles``; the picker preselects the
@@ -174,7 +174,7 @@ class AbetterrouteplannerFlowHandler(
         """Ask the user which of their ABRP vehicles to track in Home Assistant."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input[CONF_CAR_IDS]:
+            if user_input[CONF_VEHICLE_IDS]:
                 if self.source == SOURCE_RECONFIGURE:
                     # Union with the prior KNOWN so a transiently-absent
                     # vehicle (deleted then re-added in ABRP, or rate-limited
@@ -188,14 +188,14 @@ class AbetterrouteplannerFlowHandler(
                     # runs.
                     reconfigure_entry = self._get_reconfigure_entry()
                     prior_known = set(
-                        reconfigure_entry.data.get(CONF_KNOWN_CAR_IDS, [])
+                        reconfigure_entry.data.get(CONF_KNOWN_VEHICLE_IDS, [])
                     )
                     return self.async_update_reload_and_abort(
                         reconfigure_entry,
                         data_updates={
                             **self._oauth_data,
-                            CONF_CAR_IDS: user_input[CONF_CAR_IDS],
-                            CONF_KNOWN_CAR_IDS: sorted(
+                            CONF_VEHICLE_IDS: user_input[CONF_VEHICLE_IDS],
+                            CONF_KNOWN_VEHICLE_IDS: sorted(
                                 prior_known
                                 | {str(v.vehicle_id) for v in self._vehicles}
                             ),
@@ -206,7 +206,7 @@ class AbetterrouteplannerFlowHandler(
                 # the earlier ``_abort_if_unique_id_configured`` call.
                 self._abort_if_unique_id_configured()
                 # Bypass ``super().async_oauth_create_entry`` and call
-                # ``async_create_entry`` directly so the ``car_ids`` key we
+                # ``async_create_entry`` directly so the ``vehicle_ids`` key we
                 # add to ``data`` doesn't rely on the base class forwarding
                 # unknown keys verbatim.
                 display_name = _display_name_from_claims(self._payload)
@@ -219,8 +219,8 @@ class AbetterrouteplannerFlowHandler(
                     title=title,
                     data={
                         **self._oauth_data,
-                        CONF_CAR_IDS: user_input[CONF_CAR_IDS],
-                        CONF_KNOWN_CAR_IDS: sorted(
+                        CONF_VEHICLE_IDS: user_input[CONF_VEHICLE_IDS],
+                        CONF_KNOWN_VEHICLE_IDS: sorted(
                             str(v.vehicle_id) for v in self._vehicles
                         ),
                     },
@@ -230,7 +230,7 @@ class AbetterrouteplannerFlowHandler(
         options = [
             SelectOptionDict(
                 value=str(vehicle.vehicle_id),
-                label=vehicle.name or vehicle.car_model,
+                label=vehicle.name or vehicle.vehicle_model,
             )
             for vehicle in self._vehicles
         ]
@@ -241,16 +241,16 @@ class AbetterrouteplannerFlowHandler(
         if user_input is None:
             if self.source == SOURCE_RECONFIGURE:
                 suggested: list[str] = list(
-                    self._get_reconfigure_entry().data[CONF_CAR_IDS]
+                    self._get_reconfigure_entry().data[CONF_VEHICLE_IDS]
                 )
             else:
                 suggested = [str(v.vehicle_id) for v in self._vehicles]
         else:
-            suggested = user_input[CONF_CAR_IDS]
+            suggested = user_input[CONF_VEHICLE_IDS]
         schema = self.add_suggested_values_to_schema(
             vol.Schema(
                 {
-                    vol.Required(CONF_CAR_IDS): SelectSelector(
+                    vol.Required(CONF_VEHICLE_IDS): SelectSelector(
                         SelectSelectorConfig(
                             options=options,
                             multiple=True,
@@ -259,7 +259,7 @@ class AbetterrouteplannerFlowHandler(
                     ),
                 }
             ),
-            {CONF_CAR_IDS: suggested},
+            {CONF_VEHICLE_IDS: suggested},
         )
         return self.async_show_form(
             step_id="pick_vehicles", data_schema=schema, errors=errors

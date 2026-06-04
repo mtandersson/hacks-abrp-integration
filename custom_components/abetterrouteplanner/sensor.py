@@ -63,7 +63,7 @@ from ._sensor_value_fns import (
 )
 from ._telemetry_models import OutputPointWithVehicleId
 from .api import AbrpVehicle
-from .const import CONF_CAR_IDS, DOMAIN, signal_new_metric
+from .const import CONF_VEHICLE_IDS, DOMAIN, signal_new_metric
 from .coordinator import AbrpTelemetryCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -218,17 +218,17 @@ async def async_setup_entry(
     garage_coordinator = runtime.garage_coordinator
     telemetry_coordinator = runtime.telemetry_coordinator
 
-    selected_ids = {int(car_id) for car_id in entry.data[CONF_CAR_IDS]}
+    selected_ids = {int(vehicle_id) for vehicle_id in entry.data[CONF_VEHICLE_IDS]}
     present_ids = {vehicle.vehicle_id for vehicle in garage_coordinator.data}
 
     missing = selected_ids - present_ids
-    for car_id in missing:
+    for vehicle_id in missing:
         # Format with the raw int so a user grepping their logs for the id
         # they saw in the picker finds it verbatim.
         _LOGGER.warning(
             "Selected vehicle %d is not in the ABRP garage; skipping. "
             "Reconfigure the integration to update the selection",
-            car_id,
+            vehicle_id,
         )
 
     entity_registry = er.async_get(hass)

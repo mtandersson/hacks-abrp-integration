@@ -52,8 +52,8 @@ do NOT copy under home-assistant). When a regen is required:
    ``OutputPoint``'s body. If a hand-copied leaf re-introduces a
    parent-key overlap (TypedDict multi-inheritance key collision),
    restore the ``# mypy: disable-error-code=misc`` directive at line
-   1 — the current keep-set has zero collisions, so the directive
-   was dropped in commit 80b.
+   1 — the current keep-set has zero collisions, so the directive is
+   not present.
 
 3. Add the corresponding row to ``_KEEP_SET_LEAVES`` and to
    ``_EXPECTED_OUTPUT_POINT_KEYS`` in
