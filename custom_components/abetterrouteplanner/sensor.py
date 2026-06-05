@@ -45,13 +45,16 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AbetterrouteplannerConfigEntry
 from ._sensor_value_fns import (
+    _CHARGING_STATE_OPTIONS,
     _battery_capacity_wh,
     _battery_temperature_c,
     _calibrated_ref_cons_wh_per_km,
+    _charging_state,
     _estimated_battery_range_m,
     _is_clean_provider_str,
     _odometer_m,
@@ -72,8 +75,15 @@ PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
-class AbrpTelemetrySensorEntityDescription(SensorEntityDescription):
-    """SensorEntityDescription with the wire-to-state extractor for telemetry."""
+class AbrpTelemetrySensorEntityDescription[T](SensorEntityDescription):
+    """SensorEntityDescription with the wire-to-state extractor for telemetry.
+
+    Generic over the extracted value type ``T`` (``float`` for the numeric
+    metrics, ``str`` for the categorical ENUM metric) so the numeric and
+    enum sensors share one machinery without a ``float | str`` union
+    leaking into either. The proven PEP 695 precedent for a generic
+    ``SensorEntityDescription`` is ``airos/sensor.py``.
+    """
 
     # Widened to ``Mapping[str, Any]`` so the same callable shape can be
     # registered as a presence predicate on the coordinator (which carries
@@ -81,7 +91,15 @@ class AbrpTelemetrySensorEntityDescription(SensorEntityDescription):
     # ``AbrpTelemetryCoordinator._presence_predicates``). The wire-shape
     # null-leaves the TypedDict doesn't admit are also handled here without
     # needing a cast at every call site.
-    value_fn: Callable[[Mapping[str, Any]], float | None]
+    value_fn: Callable[[Mapping[str, Any]], T | None]
+
+
+class AbrpNumericSensorEntityDescription(AbrpTelemetrySensorEntityDescription[float]):
+    """Description for a numeric telemetry sensor (soc / power / voltage / ...)."""
+
+
+class AbrpEnumSensorEntityDescription(AbrpTelemetrySensorEntityDescription[str]):
+    """Description for the categorical ENUM telemetry sensor (charging_state)."""
 
 
 # Telemetry sensor catalogue. ``value_fn`` returns ``None`` when its field
@@ -90,8 +108,10 @@ class AbrpTelemetrySensorEntityDescription(SensorEntityDescription):
 # vehicle. The value_fn helpers live in ``_sensor_value_fns.py`` so
 # ``coordinator.py`` can import them via the ``SENSOR_VALUE_FNS`` registry
 # without closing a cycle through this module.
-SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
-    AbrpTelemetrySensorEntityDescription(
+SENSORS: tuple[
+    AbrpNumericSensorEntityDescription | AbrpEnumSensorEntityDescription, ...
+] = (
+    AbrpNumericSensorEntityDescription(
         key="soc",
         translation_key="soc",
         device_class=SensorDeviceClass.BATTERY,
@@ -100,7 +120,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_soc_percent,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="power",
         translation_key="power",
         device_class=SensorDeviceClass.POWER,
@@ -108,7 +128,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.WATT,
         value_fn=_power_w,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="voltage",
         translation_key="voltage",
         device_class=SensorDeviceClass.VOLTAGE,
@@ -116,7 +136,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         value_fn=_voltage_v,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="soe",
         translation_key="soe",
         device_class=SensorDeviceClass.ENERGY_STORAGE,
@@ -126,7 +146,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_soe_wh,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="odometer",
         translation_key="odometer",
         device_class=SensorDeviceClass.DISTANCE,
@@ -136,7 +156,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=0,
         value_fn=_odometer_m,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="calibrated_ref_cons",
         translation_key="calibrated_ref_cons",
         device_class=SensorDeviceClass.ENERGY_DISTANCE,
@@ -151,7 +171,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_calibrated_ref_cons_wh_per_km,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="battery_capacity",
         translation_key="battery_capacity",
         device_class=SensorDeviceClass.ENERGY_STORAGE,
@@ -165,7 +185,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_battery_capacity_wh,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="soh",
         translation_key="soh",
         # No ``device_class``: ``SensorDeviceClass.BATTERY`` is "percentage
@@ -177,7 +197,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_soh_percent,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="range",
         translation_key="range",
         device_class=SensorDeviceClass.DISTANCE,
@@ -190,7 +210,7 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=0,
         value_fn=_estimated_battery_range_m,
     ),
-    AbrpTelemetrySensorEntityDescription(
+    AbrpNumericSensorEntityDescription(
         key="battery_temperature",
         translation_key="battery_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
@@ -201,11 +221,37 @@ SENSORS: tuple[AbrpTelemetrySensorEntityDescription, ...] = (
         suggested_display_precision=1,
         value_fn=_battery_temperature_c,
     ),
+    AbrpEnumSensorEntityDescription(
+        key="charging_state",
+        translation_key="charging_state",
+        # ENUM device_class: a categorical state, not a measurement. No
+        # ``state_class`` and no unit — ENUM is LTS-ineligible (accepted).
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_CHARGING_STATE_OPTIONS.values()),
+        value_fn=_charging_state,
+    ),
 )
 
-SENSORS_BY_KEY: dict[str, AbrpTelemetrySensorEntityDescription] = {
-    description.key: description for description in SENSORS
-}
+SENSORS_BY_KEY: dict[
+    str, AbrpNumericSensorEntityDescription | AbrpEnumSensorEntityDescription
+] = {description.key: description for description in SENSORS}
+
+
+def _build_telemetry_sensor(
+    coordinator: AbrpTelemetryCoordinator,
+    entry: AbetterrouteplannerConfigEntry,
+    vehicle: AbrpVehicle,
+    description: AbrpNumericSensorEntityDescription | AbrpEnumSensorEntityDescription,
+) -> AbrpTelemetrySensor[float] | AbrpTelemetrySensor[str]:
+    """Dispatch on the description type to the matching concrete sensor.
+
+    Keeps the three instantiation sites (eager-from-registry probe,
+    seed-frame scan, dispatcher ``_on_new_metric``) free of a repeated
+    isinstance branch.
+    """
+    if isinstance(description, AbrpEnumSensorEntityDescription):
+        return AbrpEnumSensor(coordinator, entry, vehicle, description)
+    return AbrpNumericSensor(coordinator, entry, vehicle, description)
 
 
 async def async_setup_entry(
@@ -264,7 +310,9 @@ async def async_setup_entry(
             if entry_row is None or entry_row.config_entry_id != entry.entry_id:
                 continue
             entities.append(
-                AbrpTelemetrySensor(telemetry_coordinator, entry, vehicle, description)
+                _build_telemetry_sensor(
+                    telemetry_coordinator, entry, vehicle, description
+                )
             )
             added.add((vehicle.vehicle_id, description.key))
             telemetry_coordinator.mark_metric_seen(vehicle.vehicle_id, description.key)
@@ -277,7 +325,9 @@ async def async_setup_entry(
             if description.value_fn(frame) is None:
                 continue
             entities.append(
-                AbrpTelemetrySensor(telemetry_coordinator, entry, vehicle, description)
+                _build_telemetry_sensor(
+                    telemetry_coordinator, entry, vehicle, description
+                )
             )
             added.add((vehicle.vehicle_id, description.key))
             telemetry_coordinator.mark_metric_seen(vehicle.vehicle_id, description.key)
@@ -320,7 +370,11 @@ async def async_setup_entry(
             return
         added.add((vehicle_id, metric_key))
         async_add_entities(
-            [AbrpTelemetrySensor(telemetry_coordinator, entry, vehicle, description)]
+            [
+                _build_telemetry_sensor(
+                    telemetry_coordinator, entry, vehicle, description
+                )
+            ]
         )
         telemetry_coordinator.mark_metric_seen(vehicle_id, metric_key)
 
@@ -332,25 +386,34 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class AbrpTelemetrySensor(CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSensor):
-    """One numeric telemetry sensor (soc / power / voltage) per vehicle.
+class AbrpTelemetrySensor[T: (float, str)](
+    CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSensor
+):
+    """One telemetry sensor (soc / power / voltage / charging_state) per vehicle.
+
+    Generic over the extracted value type ``T`` — ``float`` for the numeric
+    metrics, ``str`` for the categorical ENUM metric. All shared behaviour
+    (lazy-create, restore, ``extra_state_attributes``, ``available``,
+    live-wins-over-restored) lives here; the only divergence is the
+    restore-value coercion in :meth:`_restore_native_value`, overridden by
+    the concrete subclasses.
 
     Restores the last-known ``native_value`` and ``last_reported_at`` across
-    HA restarts so wake-only fields (voltage, power, SoH, ...) keep their
-    most recent reading visible while the vehicle is parked and ABRP is
-    silent. Live coordinator frames win over restored slots whenever
+    HA restarts so wake-only fields (voltage, power, SoH, charging_state, ...)
+    keep their most recent reading visible while the vehicle is parked and
+    ABRP is silent. Live coordinator frames win over restored slots whenever
     ``value_fn`` returns non-None.
     """
 
     _attr_has_entity_name = True
-    entity_description: AbrpTelemetrySensorEntityDescription
+    entity_description: AbrpTelemetrySensorEntityDescription[T]
 
     def __init__(
         self,
         coordinator: AbrpTelemetryCoordinator,
         entry: AbetterrouteplannerConfigEntry,
         vehicle: AbrpVehicle,
-        description: AbrpTelemetrySensorEntityDescription,
+        description: AbrpTelemetrySensorEntityDescription[T],
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -364,9 +427,17 @@ class AbrpTelemetrySensor(CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSe
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, scope)},
         )
-        self._restored_native_value: float | None = None
+        self._restored_native_value: T | None = None
         self._restored_last_reported_at: datetime | None = None
         self._restored_provider: str | None = None
+
+    def _restore_native_value(self, raw: object) -> T | None:
+        """Coerce a recorder-cached ``native_value`` to ``T`` (or ``None``).
+
+        Overridden per concrete subclass: numerics accept int/float (not
+        bool); the enum accepts only an in-``options`` string.
+        """
+        raise NotImplementedError
 
     async def async_added_to_hass(self) -> None:
         """Lift recorder-cached value + stamp into per-instance restore slots.
@@ -381,9 +452,7 @@ class AbrpTelemetrySensor(CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSe
         """
         await super().async_added_to_hass()
         if (last := await self.async_get_last_sensor_data()) is not None:
-            value = last.native_value
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                self._restored_native_value = float(value)
+            self._restored_native_value = self._restore_native_value(last.native_value)
         if (state := await self.async_get_last_state()) is not None:
             stamp_raw = state.attributes.get("last_reported_at")
             # ``state.attributes`` round-trips through HA's JSONEncoder so
@@ -409,8 +478,15 @@ class AbrpTelemetrySensor(CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSe
         return self.coordinator.data.get(self._vehicle_id)
 
     @property
-    def native_value(self) -> float | None:
-        """Live value when present, falling back to the restored value."""
+    def native_value(self) -> StateType:
+        """Live value when present, falling back to the restored value.
+
+        Annotated ``StateType`` (not ``T | None``) so HA's pylint
+        ``home-assistant-return-type`` plugin — which checks the literal
+        annotation and does not resolve the TypeVar — accepts it. ``T | None``
+        (``T`` constrained to ``float | str``) is assignable to ``StateType``,
+        so the runtime contract is unchanged. Mirrors ``airos/sensor.py``.
+        """
         frame = self._frame()
         if frame is not None:
             live = self.entity_description.value_fn(frame)
@@ -462,3 +538,38 @@ class AbrpTelemetrySensor(CoordinatorEntity[AbrpTelemetryCoordinator], RestoreSe
         restarted before any frame landed.
         """
         return self.native_value is not None
+
+
+class AbrpNumericSensor(AbrpTelemetrySensor[float]):
+    """A numeric telemetry sensor (soc / power / voltage / ...)."""
+
+    entity_description: AbrpNumericSensorEntityDescription
+
+    def _restore_native_value(self, raw: object) -> float | None:
+        """Accept an int/float recorder value (rejecting bool), else ``None``.
+
+        ``bool`` is a subclass of ``int`` in Python, so the explicit
+        ``isinstance(raw, bool)`` exclusion stops a malformed ``True`` from
+        surfacing as ``1.0``.
+        """
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            return float(raw)
+        return None
+
+
+class AbrpEnumSensor(AbrpTelemetrySensor[str]):
+    """The categorical ENUM telemetry sensor (charging_state)."""
+
+    entity_description: AbrpEnumSensorEntityDescription
+
+    def _restore_native_value(self, raw: object) -> str | None:
+        """Accept a restored string only when it is a current ``options`` member.
+
+        Belt-and-suspenders mirroring HA core's ENUM rejection: a restored
+        value outside ``options`` (e.g. the raw UPPER wire member, or junk
+        from a renamed option) is coerced to ``None`` rather than written
+        back — an out-of-``options`` value would make HA core raise
+        ``ValueError`` at state write.
+        """
+        options = self.entity_description.options or ()
+        return raw if isinstance(raw, str) and raw in options else None

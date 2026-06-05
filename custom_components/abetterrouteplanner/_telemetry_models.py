@@ -14,13 +14,14 @@ Transitively reachable from the two telemetry frame containers we import
 * every ``value_fn`` registered in ``STAMPED_VALUE_FNS``
   (:mod:`._sensor_value_fns`) — soc, power, voltage, soe, odometer,
   calibratedRefCons, batteryCapacity, soh, estimatedBatteryRange,
-  batteryTemperature;
+  batteryTemperature, chargingState;
 * ``_extract_lat_long`` (:mod:`._sensor_value_fns`) — location.
 
-That's 11 surfaced keys → 11 leaf+Output pairs + the mixin chain
+That's 12 surfaced keys → 12 leaf+Output pairs + the mixin chain
 (``WithTime``, ``WithTimeAndProvider``, ``Provider``, ``DateTimeString``)
-+ a handful of numeric type aliases. The full swagger graph emits ~415
-classes; the keep-set above is ~34 — 92 % reduction.
++ a handful of numeric type aliases (plus the ``ChargingStateValue``
+enum alias for the one categorical leaf). The full swagger graph emits
+~415 classes; the keep-set above is ~36 — 91 % reduction.
 
 The exhaustive keep-set is also pinned by
 ``tests/components/abetterrouteplanner/test_telemetry_models.py``: an
@@ -151,6 +152,23 @@ class CalibratedRefConsOutput(WithTimeAndProvider, CalibratedRefCons):
     pass
 
 
+type ChargingStateValue = Literal[
+    "CHARGING_AC",
+    "CHARGING_DC",
+    "CHARGING_UNKNOWN",
+    "NOT_CHARGING",
+    "PLUGGED_IN",
+]
+
+
+class ChargingState(TypedDict):
+    state: ChargingStateValue
+
+
+class ChargingStateOutput(WithTimeAndProvider, ChargingState):
+    pass
+
+
 class EstimatedBatteryRange(TypedDict):
     m: float
 
@@ -211,6 +229,7 @@ class OutputPoint(TypedDict):
     batteryCapacity: NotRequired[BatteryCapacityOutput]
     batteryTemperature: NotRequired[BatteryTemperatureOutput]
     calibratedRefCons: NotRequired[CalibratedRefConsOutput]
+    chargingState: NotRequired[ChargingStateOutput]
     estimatedBatteryRange: NotRequired[EstimatedBatteryRangeOutput]
     location: NotRequired[LocationOutput]
     odometer: NotRequired[OdometerOutput]

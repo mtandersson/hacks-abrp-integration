@@ -18,7 +18,10 @@ package — internal-to-integration, not a HA platform module.
 """
 
 from collections.abc import Callable, Mapping
+import logging
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _soc_percent(frame: Mapping[str, Any]) -> float | None:
@@ -186,6 +189,64 @@ SENSOR_VALUE_FNS: tuple[
 )
 
 
+# Wire enum member → HA option-key map for the categorical
+# ``chargingState`` field. Closed-enum: every member ABRP's v2 spec emits
+# has a lowercase HA option key here. An unrecognized/future member maps to
+# ``None`` (see :func:`_charging_state`) — never a raw string, because an
+# out-of-``options`` value makes HA core raise ``ValueError`` at state write.
+_CHARGING_STATE_OPTIONS: dict[str, str] = {
+    "CHARGING_AC": "charging_ac",
+    "CHARGING_DC": "charging_dc",
+    "CHARGING_UNKNOWN": "charging_unknown",
+    "NOT_CHARGING": "not_charging",
+    "PLUGGED_IN": "plugged_in",
+}
+
+# Module-level dedup so an unrecognized member is logged once per process,
+# not on every SSE frame carrying it.
+_unknown_charging_states_seen: set[str] = set()
+
+
+def _charging_state(frame: Mapping[str, Any]) -> str | None:
+    """Map the categorical ``chargingState`` wire field to an HA option key.
+
+    Tolerates every degenerate shape (missing key, ``null`` block, empty
+    dict, missing/non-string ``state``) by returning ``None`` — consistent
+    with the absent/malformed → ``None`` contract the numeric value_fns
+    share. An unrecognized non-empty member also maps to ``None`` (returning
+    the raw string would make HA core raise ``ValueError`` at state write,
+    since it is not in ``options``) and logs a WARNING once per process so
+    upstream enum drift leaves a runtime breadcrumb — diagnostics surfaces
+    field names but not values.
+    """
+    block = frame.get("chargingState")
+    if not isinstance(block, dict):
+        return None
+    state = block.get("state")
+    if not isinstance(state, str):
+        return None
+    option = _CHARGING_STATE_OPTIONS.get(state)
+    if option is None and state and state not in _unknown_charging_states_seen:
+        _unknown_charging_states_seen.add(state)
+        _LOGGER.warning(
+            "Unrecognized ABRP chargingState %r; the charging_state sensor will "
+            "be unavailable for this state until the integration adds it",
+            state,
+        )
+    return option
+
+
+# Type-pure ENUM registry mirroring ``SENSOR_VALUE_FNS``' 3-tuple shape
+# ``(registry_key, wire_key, value_fn)``. Kept separate from the numeric
+# registry so neither widens to ``float | str``; folded into
+# ``STAMPED_VALUE_FNS`` below. Note the asymmetric key (``charging_state``
+# != ``chargingState``) — handled by the wire_key-based stale-skip in
+# ``coordinator.apply_frame``.
+ENUM_VALUE_FNS: tuple[
+    tuple[str, str, Callable[[Mapping[str, Any]], str | None]], ...
+] = (("charging_state", "chargingState", _charging_state),)
+
+
 def _extract_lat_long(frame: Mapping[str, Any]) -> tuple[float, float] | None:
     """Return ``(lat, long)`` from a telemetry frame, or ``None``.
 
@@ -236,7 +297,11 @@ LOCATION_VALUE_FN: Callable[[Mapping[str, Any]], tuple[float, float] | None] = (
 # is populated at import time.
 STAMPED_VALUE_FNS: tuple[
     tuple[str, str, Callable[[Mapping[str, Any]], object | None]], ...
-] = (*SENSOR_VALUE_FNS, (LOCATION_KEY, LOCATION_KEY, LOCATION_VALUE_FN))
+] = (
+    *SENSOR_VALUE_FNS,
+    *ENUM_VALUE_FNS,
+    (LOCATION_KEY, LOCATION_KEY, LOCATION_VALUE_FN),
+)
 
 
 def _extract_provider(frame: Mapping[str, Any], key: str) -> str | None:
