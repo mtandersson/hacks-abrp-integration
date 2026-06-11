@@ -11,5 +11,5 @@
   "requirements": [
     "aioabrp @ git+https://github.com/mtandersson/aioabrp.git@35158cc0721c8a748661e4c52c718d6ea2c439fa"
   ],
-  "version": "0.3.0"
+  "version": "0.3.1"
 }
