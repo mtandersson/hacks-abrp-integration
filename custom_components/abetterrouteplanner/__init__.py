@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from http import HTTPStatus
 
+from aioabrp import AbrpClient, TelemetryStream
 from aiohttp import ClientError, ClientResponseError
 
 from homeassistant.config_entries import ConfigEntry
@@ -16,25 +17,28 @@ from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
 )
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import UNDEFINED, ConfigType, UndefinedType
 
+from .auth import AbetterrouteplannerAuth
 from .const import (
+    ABRP_APP_KEY,
     CONF_KNOWN_VEHICLE_IDS,
     CONF_VEHICLE_IDS,
     DOMAIN,
     PREWARM_WINDOW_SECONDS,
 )
-from .coordinator import (
-    AbrpTelemetryCoordinator,
-    AbrpVehiclesCoordinator,
-    _run_sse_loop,
-)
-from .migrate import async_migrate_drop_catalog_sensors, async_migrate_ux_b_hidden_by
+from .coordinator import AbrpTelemetryCoordinator, AbrpVehiclesCoordinator
 from .oauth import AbetterrouteplannerOAuth2Implementation
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-PLATFORMS: list[Platform] = [Platform.DEVICE_TRACKER, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+# Device-card manufacturer fallback when the catalog can't resolve a make.
+# Used by BOTH the setup-time anchor and the on-refresh metadata propagation;
+# they must agree or the propagation would rewrite the field on every poll.
+_DEFAULT_MANUFACTURER = "A Better Routeplanner"
 
 # Consecutive missing-from-garage polls before treating a vehicle as deleted
 # upstream. Threshold 2 ≈ 20 minutes of patience — covers transient ABRP-side
@@ -70,11 +74,6 @@ def _make_auto_add_listener(
     garage_coordinator: AbrpVehiclesCoordinator,
 ) -> Callable[[], None]:
     """Build the dynamic-devices auto-add listener for the given entry.
-
-    Factored out of ``async_setup_entry`` so the setup function itself stays
-    under the C901 cyclomatic-complexity budget; this also keeps the
-    ``reload_pending`` closure state co-located with the closure that owns
-    it.
 
     ``reload_pending`` tracks vehicle ids whose reload has been scheduled but
     the actual unload + re-setup teardown hasn't run yet. Two production
@@ -211,11 +210,16 @@ class AbrpData:
     drives device-registry entries), while the telemetry coordinator
     receives push updates from the ``/2/tlm`` SSE stream. Separating them
     isolates failure modes — SSE flakes never threaten device identity.
+
+    ``stream`` is the push-telemetry SSE consumer owned by the entry. It is
+    only created when the entry has live vehicle ids to stream; an entry with
+    no streamable vehicles leaves it ``None``.
     """
 
     session: config_entry_oauth2_flow.OAuth2Session
     garage_coordinator: AbrpVehiclesCoordinator
     telemetry_coordinator: AbrpTelemetryCoordinator
+    stream: TelemetryStream | None
 
 
 type AbetterrouteplannerConfigEntry = ConfigEntry[AbrpData]
@@ -265,19 +269,6 @@ async def async_setup_entry(
             translation_key="oauth2_token_refresh_failed",
         ) from err
 
-    # Runs before any platform forward so the sensor platform's
-    # ``async_setup_entry`` inspects a registry that no longer carries
-    # UX-B-era ``hidden_by=INTEGRATION`` rows for entities UX-C would
-    # otherwise leave permanently masked.
-    async_migrate_ux_b_hidden_by(hass, entry)
-    # Active cleanup for the three legacy catalog-derived sensors
-    # (``_maker`` / ``_model`` / ``_year``). Those sensor classes have
-    # been deleted and the same nameplate now surfaces via
-    # ``DeviceInfo.model``; without this sweep the orphan registry rows
-    # would render as permanently-unavailable entities on legacy
-    # installs forever.
-    async_migrate_drop_catalog_sensors(hass, entry)
-
     garage_coordinator = AbrpVehiclesCoordinator(hass, entry, session)
     await garage_coordinator.async_config_entry_first_refresh()
 
@@ -308,7 +299,7 @@ async def async_setup_entry(
     # Anchor a device per selected vehicle BEFORE forwarding the platforms and
     # registering the garage-listener callbacks. The device card is then
     # present immediately after setup — even for a vehicle that's silent on
-    # SSE — and downstream listeners (``_propagate_renames``,
+    # SSE — and downstream listeners (``_propagate_device_metadata``,
     # ``_remove_stale_devices``) operate against a populated device registry
     # on their first fire. Formulas mirror those used by the telemetry
     # entities so the device fields match what an entity-driven registration
@@ -322,7 +313,7 @@ async def async_setup_entry(
         device_registry.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, scope)},
-            manufacturer=vehicle.device_manufacturer or "A Better Routeplanner",
+            manufacturer=vehicle.device_manufacturer or _DEFAULT_MANUFACTURER,
             model=vehicle.device_model or vehicle.vehicle_model,
             name=vehicle.name or vehicle.vehicle_model,
             configuration_url=(
@@ -331,15 +322,24 @@ async def async_setup_entry(
         )
 
     @callback
-    def _propagate_renames() -> None:
-        """Push ABRP vehicle-name changes into the HA device registry.
+    def _propagate_device_metadata() -> None:
+        """Reconcile each device's name, model, and manufacturer on refresh.
 
-        Fires on every successful garage refresh. The same expression as
-        ``DeviceInfo.name`` in :mod:`.sensor` (``vehicle.name`` with a
-        ``vehicle_model`` fallback) is recomputed each call so the registry
-        entry stays in lockstep with what the initial registration would
-        have produced. ``name_by_user`` wins — once the user has overridden
-        the device name in HA, ABRP renames are silently skipped.
+        Fires on every successful garage refresh and recomputes the same
+        expressions the setup-time anchor used, so any value that changes
+        upstream is pushed into the registry WITHOUT a config-entry reload:
+
+        * ``name`` — an ABRP vehicle rename. ``name_by_user`` wins: once the
+          user has overridden the device name in HA, ABRP renames are skipped.
+        * ``model`` / ``manufacturer`` — these only resolve once the garage
+          coordinator's self-healing catalog fetch finally succeeds (a delayed
+          catalog or a newly-added model). They are integration-owned (no
+          user-override concept), so they always track the anchor formula;
+          before the catalog loads they read the raw typecode / the default
+          manufacturer, and flip to the catalog values on the poll after the
+          fetch succeeds.
+
+        Each field is compared before writing so an unchanged poll is a no-op.
         """
         device_registry = dr.async_get(hass)
         for vehicle in garage_coordinator.data:
@@ -347,14 +347,35 @@ async def async_setup_entry(
             device = device_registry.async_get_device(identifiers={(DOMAIN, scope)})
             if device is None:
                 continue
-            if device.name_by_user is not None:
-                continue
-            new_name = vehicle.name or vehicle.vehicle_model
-            if device.name == new_name:
-                continue
-            device_registry.async_update_device(device.id, name=new_name)
+            # ``UNDEFINED`` per field = "leave unchanged"; only the fields that
+            # actually differ are passed, so an unchanged poll is a no-op.
+            name: str | UndefinedType = UNDEFINED
+            if device.name_by_user is None:
+                candidate = vehicle.name or vehicle.vehicle_model
+                if device.name != candidate:
+                    name = candidate
+            model: str | UndefinedType = UNDEFINED
+            candidate_model = vehicle.device_model or vehicle.vehicle_model
+            if device.model != candidate_model:
+                model = candidate_model
+            manufacturer: str | UndefinedType = UNDEFINED
+            candidate_manufacturer = (
+                vehicle.device_manufacturer or _DEFAULT_MANUFACTURER
+            )
+            if device.manufacturer != candidate_manufacturer:
+                manufacturer = candidate_manufacturer
+            if (
+                name is not UNDEFINED
+                or model is not UNDEFINED
+                or manufacturer is not UNDEFINED
+            ):
+                device_registry.async_update_device(
+                    device.id, name=name, model=model, manufacturer=manufacturer
+                )
 
-    entry.async_on_unload(garage_coordinator.async_add_listener(_propagate_renames))
+    entry.async_on_unload(
+        garage_coordinator.async_add_listener(_propagate_device_metadata)
+    )
 
     # Construct the telemetry coordinator BEFORE the stale-devices listener
     # closure captures it — the listener fires both eagerly at setup time
@@ -412,44 +433,55 @@ async def async_setup_entry(
         )
     )
 
-    entry.runtime_data = AbrpData(
-        session=session,
-        garage_coordinator=garage_coordinator,
-        telemetry_coordinator=telemetry_coordinator,
-    )
+    # Build the auth wrapper + client + websession once; they back both the
+    # seed poll and the SSE consumer below. The stream is owned by the config
+    # entry and stopped on unload.
+    websession = async_get_clientsession(hass)
+    auth = AbetterrouteplannerAuth(session)
+    client = AbrpClient(websession, ABRP_APP_KEY, auth)
 
-    # Spawn the SSE consumer scoped to the entry's selected vehicles. The
-    # task is owned by the config entry — HA cancels it on unload. Filter
-    # the selection against the live garage so we only stream for vehicles
-    # the API actually knows about; the v2 endpoint rejects unknown IDs,
-    # and an entry with no live selections (e.g. user removed every vehicle
-    # in ABRP) should idle until the next garage refresh re-discovers them.
+    # Filter the selection against the live garage so we only stream for
+    # vehicles the API actually knows about; the v2 endpoint rejects unknown
+    # IDs, and an entry with no live selections (e.g. user removed every
+    # vehicle in ABRP) should idle until the next garage refresh re-discovers
+    # them.
     present_ids = {vehicle.vehicle_id for vehicle in garage_coordinator.data}
     vehicle_ids = [
         int(vehicle_id)
         for vehicle_id in entry.data[CONF_VEHICLE_IDS]
         if int(vehicle_id) in present_ids
     ]
-    # Seed the telemetry coordinator BEFORE spawning the SSE consumer so the
-    # cached JSON snapshot is the baseline the stream merges into; then give
-    # the consumer a brief pre-warm window before forwarding to the sensor
-    # platform. The JSON snapshot can lag the live stream (e.g. a vehicle is
-    # charging right now → ``power`` is non-null on SSE but null in the
-    # cached JSON), so the window lets in-flight frames merge into
-    # ``coordinator.data`` before the platform inspects it to decide which
-    # metric entities to create. The wait is capped: a slow / empty stream
-    # falls through to the dispatcher path, which covers any post-setup
-    # first-arrival.
+
+    # Seed the telemetry coordinator BEFORE starting the stream so the cached
+    # snapshot is the baseline the stream merges into; then give the consumer
+    # a brief pre-warm window before forwarding to the sensor platform. The
+    # seeded snapshot can lag the live stream (e.g. a vehicle is charging right
+    # now → ``power`` is non-null on SSE but null in the seed), so the window
+    # lets in-flight frames merge into ``coordinator.data`` before the platform
+    # inspects it to decide which metric entities to create. The wait is
+    # capped: a slow / empty stream falls through to the dispatcher path, which
+    # covers any post-setup first-arrival.
+    stream: TelemetryStream | None = None
     if vehicle_ids:
-        await telemetry_coordinator.async_seed_from_json_poll(
-            vehicle_ids, session.token["access_token"]
+        await telemetry_coordinator.async_seed(client, vehicle_ids)
+        stream = TelemetryStream(
+            websession,
+            ABRP_APP_KEY,
+            auth,
+            vehicle_ids,
+            on_update=telemetry_coordinator.on_update,
+            on_connection_change=telemetry_coordinator.on_connection_change,
+            name=entry.title,
         )
-        entry.async_create_background_task(
-            hass,
-            _run_sse_loop(hass, entry, telemetry_coordinator, session, vehicle_ids),
-            name="abrp-sse",
-        )
+        await stream.start()
         await asyncio.sleep(PREWARM_WINDOW_SECONDS)
+
+    entry.runtime_data = AbrpData(
+        session=session,
+        garage_coordinator=garage_coordinator,
+        telemetry_coordinator=telemetry_coordinator,
+        stream=stream,
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -459,6 +491,8 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: AbetterrouteplannerConfigEntry
 ) -> bool:
     """Unload a config entry."""
+    if (stream := entry.runtime_data.stream) is not None:
+        await stream.stop()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

@@ -7,5 +7,9 @@
   "issue_tracker": "https://github.com/mtandersson/hacks-abrp-integration/issues",
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "version": "0.2.0"
+  "loggers": ["aioabrp"],
+  "requirements": [
+    "aioabrp @ git+https://github.com/mtandersson/aioabrp.git@35158cc0721c8a748661e4c52c718d6ea2c439fa"
+  ],
+  "version": "0.3.0"
 }

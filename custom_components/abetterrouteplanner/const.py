@@ -10,20 +10,10 @@ OAUTH2_CLIENT_ID = "ha-abrp-integration"
 # usual ``openid``). ``offline_access`` is required to receive a refresh token.
 OAUTH2_SCOPES: list[str] = ["oidc", "profile", "email", "offline_access"]
 
-ABRP_API_BASE = "https://api.iternio.com/1"
-# SSE telemetry. Probe-confirmed base is ``/2`` (not ``/v2``); the
-# swagger ``servers.url`` agrees.
-ABRP_API_V2_BASE = "https://api.iternio.com/2"
-ABRP_V2_TLM_ENDPOINT = "tlm"
-# v2 splits auth across two headers: the static partner key in ``X-API-KEY``
-# and the per-user session (OAuth ``access_token``) in ``X-ABRP-SESSION``.
-HEADER_API_KEY = "X-API-KEY"
-HEADER_ABRP_SESSION = "X-ABRP-SESSION"
-
 # Partner API key issued by ABRP (Iternio) for the Home Assistant integration.
+# Passed to ``aioabrp.AbrpClient`` / ``aioabrp.TelemetryStream`` as the API
+# key; all endpoint/header/base-URL wiring now lives in the library.
 ABRP_APP_KEY = "97b4bb90-b8f5-413b-9f28-09789a3777ed"
-
-ENDPOINT_GET_TLM = "session/get_tlm"
 
 # Config entry key holding the list of tracked vehicle IDs.
 #
@@ -44,25 +34,6 @@ CONF_VEHICLE_IDS = "vehicle_ids"
 # but not selected" is the spouse-vehicle / rental-vehicle escape hatch and stays
 # permanently declined until the user re-runs reconfigure.
 CONF_KNOWN_VEHICLE_IDS = "known_vehicle_ids"
-
-# Marker stored in ``entry.data`` once the UX-B → UX-C entity_registry
-# migration has run for this entry. UX-B hid absent-metric sensors via a
-# ``_attr_entity_registry_visible_default = False`` + per-update unhide pattern;
-# UX-C replaced that with lazy/dispatcher creation, so any leftover
-# ``hidden_by=INTEGRATION`` row from a pre-UX-C install permanently masks the
-# entity. ``async_migrate_ux_b_hidden_by`` clears those rows once and sets
-# this flag to skip the sweep on subsequent setups.
-CONF_UX_B_MIGRATION_DONE = "ux_b_migration_done"
-
-# Marker stored in ``entry.data`` once the catalog-sensors cleanup migration
-# has run for this entry. Legacy installs left
-# ``<scope>_<vehicle_id>_{maker,model,year}`` rows in the entity_registry for
-# the three catalog-derived diagnostic sensors that used to ship as standalone
-# entities; those sensor classes are gone and the same nameplate information
-# now surfaces via ``DeviceInfo.model``. ``async_migrate_drop_catalog_sensors``
-# removes every matching row once and sets this flag to skip the sweep on
-# subsequent setups.
-CONF_CATALOG_SENSORS_CLEANUP_DONE = "catalog_sensors_cleanup_done"
 
 # Wall-clock cap for the SSE pre-warm window between spawning the long-lived
 # telemetry consumer and forwarding the sensor platform. The JSON seed snapshot

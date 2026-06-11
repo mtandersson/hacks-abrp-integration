@@ -1,110 +1,105 @@
 {
-  "config": {
-    "abort": {
-      "already_configured": "Account is already configured",
-      "already_in_progress": "Configuration flow is already in progress",
-      "api_unauthorized": "Could not verify your A Better Routeplanner account.",
-      "authorize_url_timeout": "Timeout while generating an authorization URL.",
-      "cannot_connect": "Failed to connect to A Better Routeplanner.",
-      "missing_configuration": "The component is not configured. Please follow the documentation.",
-      "no_url_available": "No URL available. For information about this error, [check the help section]({docs_url})",
-      "no_vehicles": "No vehicles were found on this A Better Routeplanner account.",
-      "oauth_error": "Received invalid token data.",
-      "oauth_failed": "Error while obtaining access token.",
-      "oauth_timeout": "Timeout while resolving the OAuth token.",
-      "oauth_unauthorized": "OAuth authorization error while obtaining access token.",
-      "reauth_successful": "Re-authentication was successful",
-      "reconfigure_successful": "Reconfiguration was successful",
-      "user_rejected_authorize": "Account linking rejected: {error}",
-      "wrong_account": "The authenticated account does not match the configured account."
-    },
-    "create_entry": {
-      "default": "Successfully authenticated"
-    },
-    "error": {
-      "select_at_least_one": "Select at least one vehicle to track."
-    },
-    "step": {
-      "pick_vehicles": {
-        "data": {
-          "vehicle_ids": "Vehicles to track"
+    "config": {
+        "abort": {
+            "already_configured": "Account is already configured",
+            "already_in_progress": "Configuration flow is already in progress",
+            "api_unauthorized": "Could not verify your A Better Routeplanner account.",
+            "authorize_url_timeout": "Timeout while generating an authorization URL.",
+            "cannot_connect": "Failed to connect to A Better Routeplanner.",
+            "missing_configuration": "The component is not configured. Please follow the documentation.",
+            "no_url_available": "No URL available. For information about this error, [check the help section]({docs_url})",
+            "no_vehicles": "No vehicles were found on this A Better Routeplanner account.",
+            "oauth_error": "Received invalid token data.",
+            "oauth_failed": "Error while obtaining access token.",
+            "oauth_timeout": "Timeout while resolving the OAuth token.",
+            "oauth_unauthorized": "OAuth authorization error while obtaining access token.",
+            "reauth_successful": "Re-authentication was successful",
+            "reconfigure_successful": "Reconfiguration was successful",
+            "user_rejected_authorize": "Account linking rejected: {error}",
+            "wrong_account": "The authenticated account does not match the configured account."
         },
-        "data_description": {
-          "vehicle_ids": "Each selected vehicle is added as a device in Home Assistant. Unselect vehicles you don't want to track here."
+        "create_entry": {
+            "default": "Successfully authenticated"
         },
-        "description": "Choose which of your A Better Routeplanner vehicles you'd like to manage in Home Assistant.",
-        "title": "Pick vehicles"
-      },
-      "reauth_confirm": {
-        "description": "The A Better Routeplanner integration needs to re-authenticate your account",
-        "title": "Authentication expired for {name}"
-      }
-    }
-  },
-  "entity": {
-    "device_tracker": {
-      "location": {
-        "name": "Location"
-      }
-    },
-    "sensor": {
-      "battery_capacity": {
-        "name": "Battery Capacity"
-      },
-      "battery_temperature": {
-        "name": "Battery temperature"
-      },
-      "calibrated_ref_cons": {
-        "name": "Calibrated Ref Cons"
-      },
-      "charging_state": {
-        "name": "Charging state",
-        "state": {
-          "charging_ac": "Charging (AC)",
-          "charging_dc": "Charging (DC)",
-          "charging_unknown": "Charging",
-          "not_charging": "Not charging",
-          "plugged_in": "Plugged in"
+        "error": {
+            "select_at_least_one": "Select at least one vehicle to track."
+        },
+        "step": {
+            "pick_vehicles": {
+                "data": {
+                    "vehicle_ids": "Vehicles to track"
+                },
+                "data_description": {
+                    "vehicle_ids": "Each selected vehicle is added as a device in Home Assistant. Unselect vehicles you don't want to track here."
+                },
+                "description": "Choose which of your A Better Routeplanner vehicles you'd like to manage in Home Assistant.",
+                "title": "Pick vehicles"
+            },
+            "reauth_confirm": {
+                "description": "The A Better Routeplanner integration needs to re-authenticate your account",
+                "title": "Authentication expired for {name}"
+            }
         }
-      },
-      "odometer": {
-        "name": "Odometer"
-      },
-      "power": {
-        "name": "Power"
-      },
-      "range": {
-        "name": "Range"
-      },
-      "soc": {
-        "name": "SoC"
-      },
-      "soe": {
-        "name": "SoE"
-      },
-      "soh": {
-        "name": "State of Health"
-      },
-      "voltage": {
-        "name": "Voltage"
-      }
+    },
+    "entity": {
+        "sensor": {
+            "battery_capacity": {
+                "name": "Battery Capacity"
+            },
+            "battery_temperature": {
+                "name": "Battery temperature"
+            },
+            "calibrated_ref_cons": {
+                "name": "Calibrated Ref Cons"
+            },
+            "charging_state": {
+                "name": "Charging state",
+                "state": {
+                    "charging_ac": "Charging (AC)",
+                    "charging_dc": "Charging (DC)",
+                    "charging_unknown": "Charging",
+                    "not_charging": "Not charging",
+                    "plugged_in": "Plugged in"
+                }
+            },
+            "odometer": {
+                "name": "Odometer"
+            },
+            "power": {
+                "name": "Power"
+            },
+            "range": {
+                "name": "Range"
+            },
+            "soc": {
+                "name": "SoC"
+            },
+            "soe": {
+                "name": "SoE"
+            },
+            "soh": {
+                "name": "State of Health"
+            },
+            "voltage": {
+                "name": "Voltage"
+            }
+        }
+    },
+    "exceptions": {
+        "abrp_session_invalid": {
+            "message": "A Better Routeplanner rejected the authentication session; please re-authenticate."
+        },
+        "abrp_update_failed": {
+            "message": "Failed to fetch vehicle data from A Better Routeplanner."
+        },
+        "oauth2_implementation_unavailable": {
+            "message": "OAuth2 implementation unavailable, will retry"
+        },
+        "oauth2_session_not_valid": {
+            "message": "The OAuth2 session is no longer valid; please re-authenticate."
+        },
+        "oauth2_token_refresh_failed": {
+            "message": "Failed to refresh the OAuth2 access token."
+        }
     }
-  },
-  "exceptions": {
-    "abrp_session_invalid": {
-      "message": "A Better Routeplanner rejected the authentication session; please re-authenticate."
-    },
-    "abrp_update_failed": {
-      "message": "Failed to fetch vehicle data from A Better Routeplanner."
-    },
-    "oauth2_implementation_unavailable": {
-      "message": "OAuth2 implementation unavailable, will retry"
-    },
-    "oauth2_session_not_valid": {
-      "message": "The OAuth2 session is no longer valid; please re-authenticate."
-    },
-    "oauth2_token_refresh_failed": {
-      "message": "Failed to refresh the OAuth2 access token."
-    }
-  }
 }
