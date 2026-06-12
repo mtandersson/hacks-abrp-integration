@@ -472,7 +472,18 @@ async def async_setup_entry(
     # covers any post-setup first-arrival.
     stream: TelemetryStream | None = None
     if vehicle_ids:
-        await telemetry_coordinator.async_seed(client, vehicle_ids)
+        # Poll one-shot only for vehicles we have never created sensors for
+        # (fresh install or a newly-added vehicle). Vehicles already known to
+        # the entity registry restore their last values via the sensor
+        # platform's eager-from-registry probe + ``RestoreSensor``, so
+        # re-polling them on every startup is wasted work. Imported locally:
+        # ``sensor`` imports ``AbetterrouteplannerConfigEntry`` from this
+        # module, so a top-level import would form a circular import.
+        from .sensor import vehicles_without_sensors  # noqa: PLC0415
+
+        new_vehicles = vehicles_without_sensors(hass, entry, vehicle_ids)
+        if new_vehicles:
+            await telemetry_coordinator.async_seed(client, new_vehicles)
         stream = TelemetryStream(
             websession,
             ABRP_APP_KEY,

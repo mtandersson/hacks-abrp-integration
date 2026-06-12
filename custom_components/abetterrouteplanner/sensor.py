@@ -16,13 +16,14 @@ dispatcher signal fired along the push path
 ``aioabrp.TelemetryStream → AbrpTelemetryCoordinator.on_update``.
 """
 
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 import logging
 from typing import Any
 
-from aioabrp import ChargingState, Metric, MetricValue
+from aioabrp import ChargingState, Metric, MetricValue, Telemetry
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -119,17 +120,33 @@ class AbrpTelemetrySensorEntityDescription[T](SensorEntityDescription):
     the ``key`` strings are HA-owned and decoupled from ``Metric.value`` to
     keep unique_ids / entity_ids stable across any library-side enum-value
     change.
+
+    ``value_fn`` extracts the typed ``MetricValue[T]`` from a ``Telemetry``
+    struct, returning ``None`` when the metric is absent. It is the single
+    access path for ``native_value`` and ``available``, keeping the
+    coordinator storage format opaque to the sensor layer.
     """
 
     metric: Metric
+    value_fn: Callable[[Telemetry], MetricValue[T] | None]
 
 
+@dataclass(frozen=True, kw_only=True)
 class AbrpNumericSensorEntityDescription(AbrpTelemetrySensorEntityDescription[float]):
     """Description for a numeric telemetry sensor (soc / power / voltage / ...)."""
 
 
+@dataclass(frozen=True, kw_only=True)
 class AbrpEnumSensorEntityDescription(AbrpTelemetrySensorEntityDescription[str]):
-    """Description for the categorical ENUM telemetry sensor (charging_state)."""
+    """Description for the categorical ENUM telemetry sensor (charging_state).
+
+    Overrides ``value_fn`` with a ``ChargingState``-typed variant because the
+    raw ``Telemetry`` field returns ``MetricValue[ChargingState]``; the parent's
+    ``T=str`` typing covers the coerced HA option string AFTER
+    ``_value_from_metric`` maps it.
+    """
+
+    value_fn: Callable[[Telemetry], MetricValue[ChargingState] | None]  # type: ignore[assignment]
 
 
 # Telemetry sensor catalogue. Each description binds a ``Metric`` whose typed
@@ -148,6 +165,7 @@ SENSORS: tuple[
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=1,
         metric=Metric.SOC,
+        value_fn=lambda t: t.soc,
     ),
     AbrpNumericSensorEntityDescription(
         key="power",
@@ -156,6 +174,7 @@ SENSORS: tuple[
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         metric=Metric.POWER,
+        value_fn=lambda t: t.power,
     ),
     AbrpNumericSensorEntityDescription(
         key="voltage",
@@ -164,6 +183,7 @@ SENSORS: tuple[
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         metric=Metric.VOLTAGE,
+        value_fn=lambda t: t.voltage,
     ),
     AbrpNumericSensorEntityDescription(
         key="soe",
@@ -174,6 +194,7 @@ SENSORS: tuple[
         suggested_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=1,
         metric=Metric.SOE,
+        value_fn=lambda t: t.soe,
     ),
     AbrpNumericSensorEntityDescription(
         key="odometer",
@@ -184,6 +205,7 @@ SENSORS: tuple[
         suggested_unit_of_measurement=UnitOfLength.KILOMETERS,
         suggested_display_precision=0,
         metric=Metric.ODOMETER,
+        value_fn=lambda t: t.odometer,
     ),
     AbrpNumericSensorEntityDescription(
         key="calibrated_ref_cons",
@@ -199,6 +221,7 @@ SENSORS: tuple[
         # native Wh/km surface.
         suggested_display_precision=1,
         metric=Metric.CALIBRATED_REF_CONS,
+        value_fn=lambda t: t.calibrated_ref_cons,
     ),
     AbrpNumericSensorEntityDescription(
         key="battery_capacity",
@@ -213,6 +236,7 @@ SENSORS: tuple[
         suggested_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=1,
         metric=Metric.BATTERY_CAPACITY,
+        value_fn=lambda t: t.battery_capacity,
     ),
     AbrpNumericSensorEntityDescription(
         key="soh",
@@ -225,6 +249,7 @@ SENSORS: tuple[
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=1,
         metric=Metric.SOH,
+        value_fn=lambda t: t.soh,
     ),
     AbrpNumericSensorEntityDescription(
         key="range",
@@ -238,6 +263,7 @@ SENSORS: tuple[
         # LTS-eligible.
         suggested_display_precision=0,
         metric=Metric.RANGE,
+        value_fn=lambda t: t.range,
     ),
     AbrpNumericSensorEntityDescription(
         key="battery_temperature",
@@ -249,6 +275,7 @@ SENSORS: tuple[
         # surfacing fake precision from the upstream's noise floor.
         suggested_display_precision=1,
         metric=Metric.BATTERY_TEMPERATURE,
+        value_fn=lambda t: t.battery_temperature,
     ),
     AbrpEnumSensorEntityDescription(
         key="charging_state",
@@ -258,12 +285,53 @@ SENSORS: tuple[
         device_class=SensorDeviceClass.ENUM,
         options=list(CHARGING_STATE_OPTIONS.values()),
         metric=Metric.CHARGING_STATE,
+        value_fn=lambda t: t.charging_state,
     ),
 )
 
 SENSORS_BY_METRIC: dict[
     Metric, AbrpNumericSensorEntityDescription | AbrpEnumSensorEntityDescription
 ] = {description.metric: description for description in SENSORS}
+
+
+def _telemetry_unique_id(
+    entry: AbetterrouteplannerConfigEntry, vehicle_id: int, key: str
+) -> str:
+    """Build a telemetry sensor's ``unique_id`` — the ONE definition of the scheme.
+
+    Every telemetry sensor registers under this id; the eager-from-registry
+    probe and the new-vehicle poll filter both look entities up by re-deriving
+    it here, so they cannot drift from what the sensors actually registered.
+    """
+    return f"{entry.unique_id}_{vehicle_id}_{key}"
+
+
+def vehicles_without_sensors(
+    hass: HomeAssistant,
+    entry: AbetterrouteplannerConfigEntry,
+    vehicle_ids: list[int],
+) -> list[int]:
+    """Return the vehicles that have no telemetry sensor in the entity registry.
+
+    A vehicle with any previously-registered sensor is "known": the
+    eager-from-registry probe recreates its entities and ``RestoreSensor``
+    restores their last values, so it needs no startup poll. A vehicle with no
+    registered sensors is new (fresh install or just added) and is polled once
+    for initial values.
+    """
+    registry = er.async_get(hass)
+    return [
+        vehicle_id
+        for vehicle_id in vehicle_ids
+        if not any(
+            registry.async_get_entity_id(
+                "sensor",
+                DOMAIN,
+                _telemetry_unique_id(entry, vehicle_id, description.key),
+            )
+            for description in SENSORS
+        )
+    ]
 
 
 def _extract_value(
@@ -342,9 +410,8 @@ async def async_setup_entry(
         # lifts the recorder's last value back into ``native_value`` in
         # ``async_added_to_hass``. Marked seen so the dispatcher does
         # not double-create when the next frame arrives.
-        scope = f"{entry.unique_id}_{vehicle.vehicle_id}"
         for description in SENSORS:
-            unique_id = f"{scope}_{description.key}"
+            unique_id = _telemetry_unique_id(entry, vehicle.vehicle_id, description.key)
             entity_id = entity_registry.async_get_entity_id("sensor", DOMAIN, unique_id)
             if entity_id is None:
                 continue
@@ -369,13 +436,13 @@ async def async_setup_entry(
             telemetry_coordinator.mark_metric_seen(
                 vehicle.vehicle_id, description.metric
             )
-        frame = telemetry_coordinator.data.get(vehicle.vehicle_id)
-        if frame is None:
+        tlm = telemetry_coordinator.data.get(vehicle.vehicle_id)
+        if tlm is None:
             continue
         for description in SENSORS:
             if (vehicle.vehicle_id, description.metric) in added:
                 continue
-            metric_value = frame.get(description.metric)
+            metric_value = description.value_fn(tlm)
             if metric_value is None:
                 continue
             if _extract_value(description, metric_value) is None:
@@ -480,7 +547,9 @@ class AbrpTelemetrySensor[T: (float, str)](
         self._vehicle_id = vehicle.vehicle_id
         self._metric = description.metric
         scope = f"{entry.unique_id}_{vehicle.vehicle_id}"
-        self._attr_unique_id = f"{scope}_{description.key}"
+        self._attr_unique_id = _telemetry_unique_id(
+            entry, vehicle.vehicle_id, description.key
+        )
         # Same device identifier shape as the anchor pass in
         # ``async_setup_entry`` so HA links every telemetry entity for
         # this vehicle to the device created there.
@@ -541,10 +610,6 @@ class AbrpTelemetrySensor[T: (float, str)](
             if _is_clean_provider_str(provider_raw):
                 self._restored_provider = provider_raw
 
-    def _frame(self) -> dict[Metric, MetricValue] | None:
-        """Return this vehicle's latest merged telemetry frame, if any."""
-        return self.coordinator.data.get(self._vehicle_id)
-
     @property
     def native_value(self) -> StateType:
         """Live value when present, falling back to the restored value.
@@ -555,9 +620,9 @@ class AbrpTelemetrySensor[T: (float, str)](
         (``T`` constrained to ``float | str``) is assignable to ``StateType``,
         so the runtime contract is unchanged. Mirrors ``airos/sensor.py``.
         """
-        frame = self._frame()
-        if frame is not None:
-            metric_value = frame.get(self._metric)
+        tlm = self.coordinator.data.get(self._vehicle_id)
+        if tlm is not None:
+            metric_value = self.entity_description.value_fn(tlm)
             if metric_value is not None:
                 live = self._value_from_metric(metric_value)
                 if live is not None:
@@ -566,7 +631,7 @@ class AbrpTelemetrySensor[T: (float, str)](
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Compose ``last_reported_at`` + ``provider`` (per-attribute live-wins).
+        """Compose ``last_reported_at`` + ``provider`` (live-wins).
 
         Returns native ``datetime`` for the stamp — HA's ``JSONEncoder``
         serialises to ISO at persist time, and the frontend renders

@@ -9,7 +9,7 @@
   "iot_class": "cloud_push",
   "loggers": ["aioabrp"],
   "requirements": [
-    "aioabrp @ git+https://github.com/mtandersson/aioabrp.git@35158cc0721c8a748661e4c52c718d6ea2c439fa"
+    "aioabrp @ git+https://github.com/mtandersson/aioabrp.git@b7f06a80e0d5bb320a044250dc3a7ef9dff905f0"
   ],
-  "version": "0.3.1"
+  "version": "0.3.2"
 }
